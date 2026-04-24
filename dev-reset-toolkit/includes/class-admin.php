@@ -1,447 +1,204 @@
 <?php
-/**
- * Admin UI.
- *
- * @package DevResetToolkit
- */
-
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/**
- * Admin page controller.
- */
 class DRT_Admin {
-	/**
-	 * Reset manager.
-	 *
-	 * @var DRT_Reset_Manager
-	 */
-	protected $reset_manager;
-
-	/**
-	 * Reactivation manager.
-	 *
-	 * @var DRT_Reactivation_Manager
-	 */
-	protected $reactivation_manager;
-
-	/**
-	 * Logger.
-	 *
-	 * @var DRT_Logger
-	 */
+	protected $resets;
+	protected $tools;
+	protected $snapshots;
+	protected $reactivation;
 	protected $logger;
+	protected $settings;
 
-	/**
-	 * Constructor.
-	 *
-	 * @param DRT_Reset_Manager        $reset_manager Reset manager.
-	 * @param DRT_Reactivation_Manager $reactivation_manager Reactivation manager.
-	 * @param DRT_Logger               $logger Logger.
-	 */
-	public function __construct( DRT_Reset_Manager $reset_manager, DRT_Reactivation_Manager $reactivation_manager, DRT_Logger $logger ) {
-		$this->reset_manager = $reset_manager;
-		$this->reactivation_manager = $reactivation_manager;
+	public function __construct( DRT_Reset_Manager $resets, DRT_Tools_Manager $tools, DRT_Snapshot_Manager $snapshots, DRT_Reactivation_Manager $reactivation, DRT_Logger $logger, DRT_Settings $settings ) {
+		$this->resets = $resets;
+		$this->tools = $tools;
+		$this->snapshots = $snapshots;
+		$this->reactivation = $reactivation;
 		$this->logger = $logger;
+		$this->settings = $settings;
 
-		add_action( 'admin_menu', array( $this, 'register_menu' ) );
-		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
-		add_action( 'admin_post_drt_run_reset', array( $this, 'handle_run_reset' ) );
-		add_action( 'admin_post_drt_reactivation_action', array( $this, 'handle_reactivation_action' ) );
+		add_action( 'admin_menu', array( $this, 'menu' ) );
+		add_action( 'admin_enqueue_scripts', array( $this, 'assets' ) );
+		add_action( 'admin_post_drt_run_reset', array( $this, 'handle_reset' ) );
+		add_action( 'admin_post_drt_run_tool', array( $this, 'handle_tool' ) );
+		add_action( 'admin_post_drt_snapshot', array( $this, 'handle_snapshot' ) );
+		add_action( 'admin_post_drt_reactivate', array( $this, 'handle_reactivate' ) );
+		add_action( 'admin_post_drt_save_settings', array( $this, 'handle_settings' ) );
 	}
 
-	/**
-	 * Register menu.
-	 *
-	 * @return void
-	 */
-	public function register_menu() {
-		add_menu_page(
-			__( 'Dev Reset Toolkit', 'dev-reset-toolkit' ),
-			__( 'Dev Reset Toolkit', 'dev-reset-toolkit' ),
-			'manage_options',
-			'dev-reset-toolkit',
-			array( $this, 'render_page' ),
-			'dashicons-update-alt'
-		);
+	public function menu() {
+		add_menu_page( 'Dev Reset Toolkit', 'Dev Reset Toolkit', 'manage_options', 'dev-reset-toolkit', array( $this, 'page' ), 'dashicons-update-alt' );
 	}
 
-	/**
-	 * Enqueue assets.
-	 *
-	 * @param string $hook Hook suffix.
-	 * @return void
-	 */
-	public function enqueue_assets( $hook ) {
+	public function assets( $hook ) {
 		if ( 'toplevel_page_dev-reset-toolkit' !== $hook ) {
 			return;
 		}
-
 		wp_enqueue_style( 'drt-admin', DRT_PLUGIN_URL . 'assets/admin.css', array(), DRT_VERSION );
 		wp_enqueue_script( 'drt-admin', DRT_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), DRT_VERSION, true );
 		wp_localize_script(
 			'drt-admin',
 			'drtAdmin',
 			array(
-				'confirmMessages' => array(
-					'options_reset' => __( 'Options Reset will remove most options, transients, widgets and customizer values. Continue?', 'dev-reset-toolkit' ),
-					'site_reset'    => __( 'Site Reset will delete posts, pages, comments, media records, menus, and many settings. Continue?', 'dev-reset-toolkit' ),
-					'nuclear_reset' => __( 'Nuclear Reset will wipe content, uploads files, users except current admin, and optionally custom plugin tables. Continue?', 'dev-reset-toolkit' ),
-				),
+				'resetConfirm' => __( 'This action is destructive. Continue?', 'dev-reset-toolkit' ),
 			)
 		);
 	}
 
-	/**
-	 * Handle reset form submission.
-	 *
-	 * @return void
-	 */
-	public function handle_run_reset() {
-		if ( ! is_admin() ) {
-			wp_die( esc_html__( 'Invalid request context.', 'dev-reset-toolkit' ) );
-		}
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'Insufficient permissions.', 'dev-reset-toolkit' ) );
-		}
+	protected function redirect( $type, $msg ) {
+		wp_safe_redirect( add_query_arg( array( 'page' => 'dev-reset-toolkit', 'drt_notice' => $type, 'drt_message' => rawurlencode( $msg ) ), admin_url( 'admin.php' ) ) );
+		exit;
+	}
 
-		check_admin_referer( 'drt_run_reset_nonce', 'drt_nonce' );
-
-		$confirm = isset( $_POST['drt_confirm_word'] ) ? sanitize_text_field( wp_unslash( $_POST['drt_confirm_word'] ) ) : '';
-		$reset_type = isset( $_POST['drt_reset_type'] ) ? sanitize_text_field( wp_unslash( $_POST['drt_reset_type'] ) ) : '';
-
+	public function handle_reset() {
+		$safety = new DRT_Safety();
+		$safety->require_capability_and_nonce( 'drt_reset_action', 'drt_nonce' );
+		$confirm = sanitize_text_field( wp_unslash( $_POST['confirm'] ?? '' ) );
 		if ( 'reset' !== $confirm ) {
-			$this->redirect_with_notice( 'error', __( 'You must type exactly "reset" to run this action.', 'dev-reset-toolkit' ) );
+			$this->redirect( 'error', __( 'Type reset to continue.', 'dev-reset-toolkit' ) );
 		}
-
-		if ( empty( $reset_type ) ) {
-			$this->redirect_with_notice( 'error', __( 'Please select a reset type.', 'dev-reset-toolkit' ) );
+		try {
+			$this->resets->run(
+				sanitize_text_field( wp_unslash( $_POST['reset_type'] ?? '' ) ),
+				array(
+					'dry_run'                   => ! empty( $_POST['dry_run'] ),
+					'delete_custom_tables'      => ! empty( $_POST['delete_custom_tables'] ),
+					'reactivate_theme'          => ! empty( $_POST['reactivate_theme'] ),
+					'reactivate_all_plugins'    => ! empty( $_POST['reactivate_plugins'] ),
+					'reactivate_selected_plugin'=> sanitize_text_field( wp_unslash( $_POST['selected_plugin'] ?? '' ) ),
+				)
+			);
+			$this->redirect( 'success', __( 'Reset completed.', 'dev-reset-toolkit' ) );
+		} catch ( Exception $e ) {
+			$this->logger->log( array( 'action' => 'reset', 'type' => 'error', 'status' => 'failed', 'error' => $e->getMessage() ) );
+			$this->redirect( 'error', $e->getMessage() );
 		}
-
-		$args = array(
-			'reactivate_theme'           => ! empty( $_POST['drt_reactivate_theme'] ),
-			'reactivate_all_plugins'     => ! empty( $_POST['drt_reactivate_plugins'] ),
-			'reactivate_selected_plugin' => isset( $_POST['drt_selected_plugin'] ) ? sanitize_text_field( wp_unslash( $_POST['drt_selected_plugin'] ) ) : '',
-			'dry_run'                    => ! empty( $_POST['drt_dry_run'] ),
-			'include_custom_tables'      => ! empty( $_POST['drt_include_custom_tables'] ),
-		);
-
-		$result = $this->reset_manager->run_reset( $reset_type, $args );
-		if ( ! empty( $result['success'] ) ) {
-			$this->redirect_with_notice( 'success', __( 'Reset completed successfully.', 'dev-reset-toolkit' ) );
-		}
-
-		$this->redirect_with_notice( 'error', implode( '; ', $result['errors'] ) );
 	}
 
-	/**
-	 * Handle reactivation tab actions.
-	 *
-	 * @return void
-	 */
-	public function handle_reactivation_action() {
-		if ( ! is_admin() || ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'Invalid permissions.', 'dev-reset-toolkit' ) );
+	public function handle_tool() {
+		$safety = new DRT_Safety();
+		$safety->require_capability_and_nonce( 'drt_tool_action', 'drt_nonce' );
+		if ( 'reset' !== sanitize_text_field( wp_unslash( $_POST['confirm'] ?? '' ) ) ) {
+			$this->redirect( 'error', __( 'Type reset to run tools.', 'dev-reset-toolkit' ) );
 		}
-
-		check_admin_referer( 'drt_reactivation_nonce', 'drt_nonce' );
-
-		$action = isset( $_POST['drt_reactivation_action'] ) ? sanitize_text_field( wp_unslash( $_POST['drt_reactivation_action'] ) ) : '';
-		$plugin = isset( $_POST['drt_selected_plugin'] ) ? sanitize_text_field( wp_unslash( $_POST['drt_selected_plugin'] ) ) : '';
-		$prefix = isset( $_POST['drt_plugin_option_prefix'] ) ? sanitize_text_field( wp_unslash( $_POST['drt_plugin_option_prefix'] ) ) : '';
-
-		$response = null;
-		switch ( $action ) {
-			case 'theme':
-				$response = $this->reactivation_manager->reactivate_previous_theme();
-				break;
-			case 'plugin':
-				$response = $this->reactivation_manager->reactivate_selected_plugin( $plugin );
-				break;
-			case 'all_plugins':
-				$response = $this->reactivation_manager->reactivate_previous_plugins();
-				break;
-			case 'recycle_plugins':
-				$response = $this->reactivation_manager->recycle_plugins();
-				break;
-			case 'reset_plugin':
-				$response = $this->reactivation_manager->reset_selected_plugin( $plugin, $prefix );
-				break;
-		}
-
-		$has_error = is_wp_error( $response ) || ( is_array( $response ) && ! empty( $response['errors'] ) );
-		$this->logger->log(
-			array(
-				'action'     => 'reactivation',
-				'reset_type' => $action,
-				'success'    => ! $has_error,
-				'errors'     => is_wp_error( $response ) ? array( $response->get_error_message() ) : ( $response['errors'] ?? array() ),
-			),
-		);
-
-		if ( $has_error ) {
-			$this->redirect_with_notice( 'error', __( 'Reactivation action completed with errors.', 'dev-reset-toolkit' ) );
-		}
-		$this->redirect_with_notice( 'success', __( 'Reactivation action completed.', 'dev-reset-toolkit' ) );
+		$this->tools->run( sanitize_text_field( wp_unslash( $_POST['tool'] ?? '' ) ), array( 'dry_run' => ! empty( $_POST['dry_run'] ) ) );
+		$this->redirect( 'success', __( 'Tool executed.', 'dev-reset-toolkit' ) );
 	}
 
-	/**
-	 * Render admin page.
-	 *
-	 * @return void
-	 */
-	public function render_page() {
-		if ( ! current_user_can( 'manage_options' ) ) {
-			return;
+	public function handle_snapshot() {
+		$safety = new DRT_Safety();
+		$safety->require_capability_and_nonce( 'drt_snapshot_action', 'drt_nonce' );
+		$action = sanitize_text_field( wp_unslash( $_POST['snapshot_action'] ?? '' ) );
+		$id = sanitize_text_field( wp_unslash( $_POST['snapshot_id'] ?? '' ) );
+		if ( 'create' === $action ) {
+			$this->snapshots->create();
+		} elseif ( 'restore' === $action ) {
+			$this->snapshots->restore( $id );
+		} elseif ( 'delete' === $action ) {
+			$this->snapshots->delete( $id );
 		}
+		$this->redirect( 'success', __( 'Snapshot action completed.', 'dev-reset-toolkit' ) );
+	}
 
-		$active_tab = isset( $_GET['tab'] ) ? sanitize_text_field( wp_unslash( $_GET['tab'] ) ) : 'reset';
-		$notice_type = isset( $_GET['drt_notice'] ) ? sanitize_text_field( wp_unslash( $_GET['drt_notice'] ) ) : '';
-		$notice_msg = isset( $_GET['drt_message'] ) ? sanitize_text_field( wp_unslash( $_GET['drt_message'] ) ) : '';
-		$plugins = function_exists( 'get_plugins' ) ? get_plugins() : array();
+	public function handle_reactivate() {
+		$safety = new DRT_Safety();
+		$safety->require_capability_and_nonce( 'drt_reactivate_action', 'drt_nonce' );
+		$action = sanitize_text_field( wp_unslash( $_POST['reactivation_action'] ?? '' ) );
+		if ( 'theme' === $action ) {
+			$this->reactivation->reactivate_theme();
+		} elseif ( 'selected' === $action ) {
+			$this->reactivation->reactivate_plugin( sanitize_text_field( wp_unslash( $_POST['selected_plugin'] ?? '' ) ) );
+		} elseif ( 'all' === $action ) {
+			$this->reactivation->reactivate_all_plugins();
+		} elseif ( 'recycle' === $action ) {
+			$this->reactivation->recycle_plugins();
+		}
+		$this->redirect( 'success', __( 'Reactivation done.', 'dev-reset-toolkit' ) );
+	}
+
+	public function handle_settings() {
+		$safety = new DRT_Safety();
+		$safety->require_capability_and_nonce( 'drt_settings_action', 'drt_nonce' );
+		$this->settings->update( wp_unslash( $_POST ) );
+		$this->redirect( 'success', __( 'Settings saved.', 'dev-reset-toolkit' ) );
+	}
+
+	public function page() {
+		$notice_type = sanitize_text_field( wp_unslash( $_GET['drt_notice'] ?? '' ) );
+		$notice_msg = sanitize_text_field( urldecode( wp_unslash( $_GET['drt_message'] ?? '' ) ) );
 		if ( ! function_exists( 'get_plugins' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
-			$plugins = get_plugins();
 		}
+		$plugins = get_plugins();
+		$snapshots = $this->snapshots->all();
+		$settings = $this->settings->get_all();
 		?>
 		<div class="wrap drt-wrap">
-			<h1><?php esc_html_e( 'Dev Reset Toolkit', 'dev-reset-toolkit' ); ?></h1>
-			<p class="drt-subheading"><?php esc_html_e( 'Safe reset toolkit for developers. Always back up your database and files before destructive actions.', 'dev-reset-toolkit' ); ?></p>
-
-			<?php if ( $notice_type && $notice_msg ) : ?>
-				<div class="notice notice-<?php echo esc_attr( $notice_type ); ?> is-dismissible"><p><?php echo esc_html( $notice_msg ); ?></p></div>
-			<?php endif; ?>
-
-			<h2 class="nav-tab-wrapper">
-				<?php
-				$tabs = array(
-					'reset'        => __( 'Reset', 'dev-reset-toolkit' ),
-					'tools'        => __( 'Tools', 'dev-reset-toolkit' ),
-					'snapshots'    => __( 'Snapshots', 'dev-reset-toolkit' ),
-					'reactivation' => __( 'Reactivation', 'dev-reset-toolkit' ),
-					'logs'         => __( 'Logs', 'dev-reset-toolkit' ),
-					'settings'     => __( 'Settings', 'dev-reset-toolkit' ),
-				);
-				foreach ( $tabs as $tab_key => $tab_label ) {
-					$tab_class = ( $active_tab === $tab_key ) ? ' nav-tab-active' : '';
-					printf( '<a class="nav-tab%s" href="%s">%s</a>', esc_attr( $tab_class ), esc_url( admin_url( 'admin.php?page=dev-reset-toolkit&tab=' . $tab_key ) ), esc_html( $tab_label ) );
-				}
-				?>
-			</h2>
-
-			<div class="drt-tab-content">
-				<?php
-				switch ( $active_tab ) {
-					case 'tools':
-						$this->render_tools_tab();
-						break;
-					case 'snapshots':
-						$this->render_snapshots_tab();
-						break;
-					case 'reactivation':
-						$this->render_reactivation_tab( $plugins );
-						break;
-					case 'logs':
-						$this->render_logs_tab();
-						break;
-					case 'settings':
-						$this->render_settings_tab();
-						break;
-					case 'reset':
-					default:
-						$this->render_reset_tab( $plugins );
-						break;
-				}
-				?>
-			</div>
-		</div>
-		<?php
-	}
-
-	/**
-	 * Render reset tab.
-	 *
-	 * @param array $plugins Installed plugins.
-	 * @return void
-	 */
-	protected function render_reset_tab( $plugins ) {
-		?>
-		<div class="drt-warning-box">
-			<h3><?php esc_html_e( 'Warning', 'dev-reset-toolkit' ); ?></h3>
-			<p><?php esc_html_e( 'Resets can remove large portions of your site data. Use dry-run first and create full backups before running a destructive reset.', 'dev-reset-toolkit' ); ?></p>
-		</div>
-
-		<table class="widefat striped drt-comparison-table">
-			<thead>
-			<tr>
-				<th><?php esc_html_e( 'Item', 'dev-reset-toolkit' ); ?></th>
-				<th><?php esc_html_e( 'Options Reset', 'dev-reset-toolkit' ); ?></th>
-				<th><?php esc_html_e( 'Site Reset', 'dev-reset-toolkit' ); ?></th>
-				<th><?php esc_html_e( 'Nuclear Reset', 'dev-reset-toolkit' ); ?></th>
-			</tr>
-			</thead>
-			<tbody>
-			<tr><td><?php esc_html_e( 'Options / settings', 'dev-reset-toolkit' ); ?></td><td><span class="drt-delete">✖ Deleted</span></td><td><span class="drt-delete">✖ Deleted</span></td><td><span class="drt-delete">✖ Deleted</span></td></tr>
-			<tr><td><?php esc_html_e( 'Posts / pages / CPT', 'dev-reset-toolkit' ); ?></td><td><span class="drt-keep">✔ Not touched</span></td><td><span class="drt-delete">✖ Deleted</span></td><td><span class="drt-delete">✖ Deleted</span></td></tr>
-			<tr><td><?php esc_html_e( 'Uploads files', 'dev-reset-toolkit' ); ?></td><td><span class="drt-keep">✔ Not touched</span></td><td><span class="drt-keep">✔ Not touched</span></td><td><span class="drt-delete">✖ Deleted</span></td></tr>
-			<tr><td><?php esc_html_e( 'Users', 'dev-reset-toolkit' ); ?></td><td><span class="drt-keep">✔ Not touched</span></td><td><span class="drt-keep">✔ Current user kept</span></td><td><span class="drt-delete">✖ All except current admin</span></td></tr>
-			</tbody>
-		</table>
-
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="drt-reset-form" class="drt-card">
-			<input type="hidden" name="action" value="drt_run_reset">
-			<?php wp_nonce_field( 'drt_run_reset_nonce', 'drt_nonce' ); ?>
-
-			<label for="drt_reset_type"><strong><?php esc_html_e( 'Reset type', 'dev-reset-toolkit' ); ?></strong></label>
-			<select id="drt_reset_type" name="drt_reset_type" required>
-				<option value=""><?php esc_html_e( 'Select reset type', 'dev-reset-toolkit' ); ?></option>
-				<option value="options_reset"><?php esc_html_e( 'Options Reset', 'dev-reset-toolkit' ); ?></option>
-				<option value="site_reset"><?php esc_html_e( 'Site Reset', 'dev-reset-toolkit' ); ?></option>
-				<option value="nuclear_reset"><?php esc_html_e( 'Nuclear Reset', 'dev-reset-toolkit' ); ?></option>
-			</select>
-
-			<div class="drt-inline-options">
-				<label><input type="checkbox" name="drt_dry_run" value="1"> <?php esc_html_e( 'Dry-run mode (show what would be deleted only)', 'dev-reset-toolkit' ); ?></label>
-				<label><input type="checkbox" name="drt_reactivate_theme" value="1"> <?php esc_html_e( 'Reactivate current theme after reset', 'dev-reset-toolkit' ); ?></label>
-				<label><input type="checkbox" name="drt_reactivate_plugins" value="1"> <?php esc_html_e( 'Reactivate all current plugins after reset', 'dev-reset-toolkit' ); ?></label>
-				<label><input type="checkbox" name="drt_include_custom_tables" value="1"> <?php esc_html_e( 'Nuclear: include custom plugin tables (dangerous)', 'dev-reset-toolkit' ); ?></label>
+			<h1>Dev Reset Toolkit</h1>
+			<?php if ( $notice_type && $notice_msg ) : ?><div class="notice notice-<?php echo esc_attr( $notice_type ); ?>"><p><?php echo esc_html( $notice_msg ); ?></p></div><?php endif; ?>
+			<div class="drt-tabs">
+				<button class="drt-tab active" data-tab="reset">Reset</button>
+				<button class="drt-tab" data-tab="tools">Tools</button>
+				<button class="drt-tab" data-tab="snapshots">Snapshots</button>
+				<button class="drt-tab" data-tab="reactivation">Reactivation</button>
+				<button class="drt-tab" data-tab="logs">Logs</button>
+				<button class="drt-tab" data-tab="settings">Settings</button>
 			</div>
 
-			<label for="drt_selected_plugin"><strong><?php esc_html_e( 'Selected plugin to reactivate (optional)', 'dev-reset-toolkit' ); ?></strong></label>
-			<select id="drt_selected_plugin" name="drt_selected_plugin">
-				<option value=""><?php esc_html_e( 'No selected plugin', 'dev-reset-toolkit' ); ?></option>
-				<?php foreach ( $plugins as $plugin_file => $plugin_data ) : ?>
-					<option value="<?php echo esc_attr( $plugin_file ); ?>"><?php echo esc_html( $plugin_data['Name'] . ' (' . $plugin_file . ')' ); ?></option>
-				<?php endforeach; ?>
-			</select>
+			<section class="drt-panel active" id="drt-panel-reset">
+				<div class="drt-warning-box"><strong>Warning:</strong> Always backup your site before destructive resets.</div>
+				<table class="widefat striped"><thead><tr><th>Item</th><th>Options Reset</th><th>Site Reset</th><th>Nuclear Reset</th></tr></thead><tbody>
+				<tr><td>Posts/Pages</td><td>Keep</td><td>Delete</td><td>Delete</td></tr>
+				<tr><td>Media Files</td><td>Keep</td><td>Keep files, delete DB records</td><td>Delete</td></tr>
+				<tr><td>Users</td><td>Keep</td><td>Keep</td><td>Delete except current admin</td></tr>
+				</tbody></table>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="drt-reset-form">
+					<input type="hidden" name="action" value="drt_run_reset" />
+					<?php wp_nonce_field( 'drt_reset_action', 'drt_nonce' ); ?>
+					<p><select name="reset_type" id="drt_reset_type"><option value="">Select reset type</option><option value="options_reset">Options Reset</option><option value="site_reset">Site Reset</option><option value="nuclear_reset">Nuclear Reset</option></select></p>
+					<p><label><input type="checkbox" name="dry_run" value="1" /> Dry-run</label> <label><input type="checkbox" name="delete_custom_tables" value="1" /> Nuclear: delete custom prefix tables</label></p>
+					<p><label><input type="checkbox" name="reactivate_theme" value="1" /> Reactivate current theme</label><br><label><input type="checkbox" name="reactivate_plugins" value="1" /> Reactivate all current plugins</label></p>
+					<p><select name="selected_plugin"><option value="">Select plugin to reactivate</option><?php foreach ( $plugins as $file => $p ) : ?><option value="<?php echo esc_attr( $file ); ?>"><?php echo esc_html( $p['Name'] ); ?></option><?php endforeach; ?></select></p>
+					<p><input type="text" id="drt_confirm" name="confirm" placeholder="Type reset" /></p>
+					<p><button class="button button-primary" id="drt_run_reset" disabled>Run Reset</button></p>
+				</form>
+			</section>
 
-			<label for="drt_confirm_word"><strong><?php esc_html_e( 'Type reset to confirm', 'dev-reset-toolkit' ); ?></strong></label>
-			<input id="drt_confirm_word" name="drt_confirm_word" type="text" autocomplete="off" placeholder="reset" required>
+			<section class="drt-panel" id="drt-panel-tools">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="drt-tool-form">
+					<input type="hidden" name="action" value="drt_run_tool" /><?php wp_nonce_field( 'drt_tool_action', 'drt_nonce' ); ?>
+					<p><select name="tool"><option value="reset_theme_options">Reset theme options</option><option value="reset_user_roles">Reset user roles</option><option value="delete_transients">Delete transients</option><option value="purge_cache">Purge cache</option><option value="delete_widgets">Delete widgets</option><option value="delete_themes_except_active">Delete themes except active</option><option value="delete_plugins_except_self">Delete plugins except this plugin</option><option value="delete_htaccess">Delete .htaccess</option></select></p>
+					<p><label><input type="checkbox" name="dry_run" value="1" /> Dry-run</label></p><p><input type="text" name="confirm" placeholder="Type reset" /></p><p><button class="button">Run Tool</button></p>
+				</form>
+			</section>
 
-			<button class="button button-primary" id="drt-run-reset" type="submit" disabled><?php esc_html_e( 'Run Reset', 'dev-reset-toolkit' ); ?></button>
-		</form>
+			<section class="drt-panel" id="drt-panel-snapshots">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"><input type="hidden" name="action" value="drt_snapshot" /><?php wp_nonce_field( 'drt_snapshot_action', 'drt_nonce' ); ?><input type="hidden" name="snapshot_action" value="create" /><button class="button">Create Snapshot</button></form>
+				<table class="widefat striped"><thead><tr><th>ID</th><th>Created</th><th>Tables</th><th>Actions</th></tr></thead><tbody><?php foreach ( $snapshots as $snap ) : ?><tr><td><?php echo esc_html( $snap['id'] ); ?></td><td><?php echo esc_html( $snap['created'] ); ?></td><td><?php echo esc_html( (string) $snap['table_cnt'] ); ?></td><td><form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;"><?php wp_nonce_field( 'drt_snapshot_action', 'drt_nonce' ); ?><input type="hidden" name="action" value="drt_snapshot"/><input type="hidden" name="snapshot_id" value="<?php echo esc_attr( $snap['id'] ); ?>"/><button name="snapshot_action" value="restore" class="button">Restore</button><button name="snapshot_action" value="delete" class="button">Delete</button></form></td></tr><?php endforeach; ?></tbody></table>
+			</section>
+
+			<section class="drt-panel" id="drt-panel-reactivation">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"><input type="hidden" name="action" value="drt_reactivate" /><?php wp_nonce_field( 'drt_reactivate_action', 'drt_nonce' ); ?>
+				<p><select name="reactivation_action"><option value="theme">Reactivate current theme</option><option value="selected">Reactivate selected plugin</option><option value="all">Reactivate all previous plugins</option><option value="recycle">Deactivate all then reactivate previous plugins</option></select></p>
+				<p><select name="selected_plugin"><option value="">Select plugin</option><?php foreach ( $plugins as $file => $p ) : ?><option value="<?php echo esc_attr( $file ); ?>"><?php echo esc_html( $p['Name'] ); ?></option><?php endforeach; ?></select></p><p><button class="button">Run Reactivation</button></p></form>
+			</section>
+
+			<section class="drt-panel" id="drt-panel-logs">
+				<table class="widefat striped"><thead><tr><th>Date</th><th>User</th><th>Action</th><th>Type</th><th>Status</th><th>Error</th></tr></thead><tbody><?php foreach ( $this->logger->all() as $log ) : ?><tr><td><?php echo esc_html( $log['timestamp'] ); ?></td><td><?php echo esc_html( $log['user'] ); ?></td><td><?php echo esc_html( $log['action'] ); ?></td><td><?php echo esc_html( $log['type'] ); ?></td><td><?php echo esc_html( $log['status'] ); ?></td><td><?php echo esc_html( $log['error'] ); ?></td></tr><?php endforeach; ?></tbody></table>
+			</section>
+
+			<section class="drt-panel" id="drt-panel-settings">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"><input type="hidden" name="action" value="drt_save_settings" /><?php wp_nonce_field( 'drt_settings_action', 'drt_nonce' ); ?>
+				<p><label><input type="checkbox" name="enable_logs" value="1" <?php checked( 1, (int) $settings['enable_logs'] ); ?> /> Enable logs</label></p>
+				<p><label><input type="checkbox" name="enable_dry_run" value="1" <?php checked( 1, (int) $settings['enable_dry_run'] ); ?> /> Enable dry-run mode globally</label></p>
+				<p><label><input type="checkbox" name="keep_plugin_active" value="1" <?php checked( 1, (int) $settings['keep_plugin_active'] ); ?> /> Keep this plugin active after reset</label></p>
+				<p><label>Max snapshots <input type="number" min="1" name="max_snapshots" value="<?php echo esc_attr( (string) $settings['max_snapshots'] ); ?>" /></label></p>
+				<p><label><input type="checkbox" name="cleanup_on_uninstall" value="1" <?php checked( 1, (int) $settings['cleanup_on_uninstall'] ); ?> /> Cleanup plugin data on uninstall</label></p>
+				<p><button class="button button-primary">Save Settings</button></p></form>
+			</section>
+		</div>
 		<?php
-	}
-
-	/**
-	 * Render tools tab.
-	 *
-	 * @return void
-	 */
-	protected function render_tools_tab() {
-		echo '<div class="drt-card"><h3>' . esc_html__( 'Tools', 'dev-reset-toolkit' ) . '</h3><p>' . esc_html__( 'Use dry-run mode in Reset tab to preview deletions. Future utility tools can be added here.', 'dev-reset-toolkit' ) . '</p></div>';
-	}
-
-	/**
-	 * Render snapshots tab.
-	 *
-	 * @return void
-	 */
-	protected function render_snapshots_tab() {
-		$snapshot = $this->reactivation_manager->get_snapshot();
-		echo '<div class="drt-card"><h3>' . esc_html__( 'Latest Snapshot', 'dev-reset-toolkit' ) . '</h3>';
-		if ( empty( $snapshot ) ) {
-			echo '<p>' . esc_html__( 'No snapshot found yet.', 'dev-reset-toolkit' ) . '</p></div>';
-			return;
-		}
-		echo '<pre>' . esc_html( wp_json_encode( $snapshot, JSON_PRETTY_PRINT ) ) . '</pre></div>';
-	}
-
-	/**
-	 * Render reactivation tab.
-	 *
-	 * @param array $plugins Plugins list.
-	 * @return void
-	 */
-	protected function render_reactivation_tab( $plugins ) {
-		?>
-		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="drt-card">
-			<input type="hidden" name="action" value="drt_reactivation_action">
-			<?php wp_nonce_field( 'drt_reactivation_nonce', 'drt_nonce' ); ?>
-
-			<h3><?php esc_html_e( 'Reactivation Tools', 'dev-reset-toolkit' ); ?></h3>
-			<p><?php esc_html_e( 'Choose an action to restore themes/plugins after a reset.', 'dev-reset-toolkit' ); ?></p>
-			<select name="drt_reactivation_action" required>
-				<option value="theme"><?php esc_html_e( 'Reactivate current theme', 'dev-reset-toolkit' ); ?></option>
-				<option value="plugin"><?php esc_html_e( 'Reactivate selected plugin', 'dev-reset-toolkit' ); ?></option>
-				<option value="all_plugins"><?php esc_html_e( 'Reactivate all previously active plugins', 'dev-reset-toolkit' ); ?></option>
-				<option value="recycle_plugins"><?php esc_html_e( 'Deactivate all then restore previous plugins', 'dev-reset-toolkit' ); ?></option>
-				<option value="reset_plugin"><?php esc_html_e( 'Reset selected plugin (deactivate, clear options, reactivate)', 'dev-reset-toolkit' ); ?></option>
-			</select>
-
-			<label for="drt-reactivation-plugin"><strong><?php esc_html_e( 'Plugin', 'dev-reset-toolkit' ); ?></strong></label>
-			<select id="drt-reactivation-plugin" name="drt_selected_plugin">
-				<option value=""><?php esc_html_e( 'Select plugin', 'dev-reset-toolkit' ); ?></option>
-				<?php foreach ( $plugins as $plugin_file => $plugin_data ) : ?>
-					<option value="<?php echo esc_attr( $plugin_file ); ?>"><?php echo esc_html( $plugin_data['Name'] . ' (' . $plugin_file . ')' ); ?></option>
-				<?php endforeach; ?>
-			</select>
-
-			<label for="drt_plugin_option_prefix"><strong><?php esc_html_e( 'Plugin option prefix (for reset selected plugin)', 'dev-reset-toolkit' ); ?></strong></label>
-			<input type="text" id="drt_plugin_option_prefix" name="drt_plugin_option_prefix" placeholder="example_plugin_">
-
-			<button class="button button-secondary" type="submit"><?php esc_html_e( 'Run Reactivation Action', 'dev-reset-toolkit' ); ?></button>
-		</form>
-		<?php
-	}
-
-	/**
-	 * Render logs tab.
-	 *
-	 * @return void
-	 */
-	protected function render_logs_tab() {
-		$logs = $this->logger->get_logs();
-		echo '<div class="drt-card"><h3>' . esc_html__( 'Reset Logs', 'dev-reset-toolkit' ) . '</h3>';
-		if ( empty( $logs ) ) {
-			echo '<p>' . esc_html__( 'No logs available.', 'dev-reset-toolkit' ) . '</p></div>';
-			return;
-		}
-		echo '<table class="widefat striped"><thead><tr><th>' . esc_html__( 'Date/Time', 'dev-reset-toolkit' ) . '</th><th>' . esc_html__( 'User', 'dev-reset-toolkit' ) . '</th><th>' . esc_html__( 'Action', 'dev-reset-toolkit' ) . '</th><th>' . esc_html__( 'Reset Type', 'dev-reset-toolkit' ) . '</th><th>' . esc_html__( 'Dry Run', 'dev-reset-toolkit' ) . '</th><th>' . esc_html__( 'Status', 'dev-reset-toolkit' ) . '</th><th>' . esc_html__( 'Errors', 'dev-reset-toolkit' ) . '</th></tr></thead><tbody>';
-		foreach ( $logs as $entry ) {
-			echo '<tr>';
-			echo '<td>' . esc_html( $entry['timestamp'] ?? '' ) . '</td>';
-			echo '<td>' . esc_html( $entry['username'] ?? '' ) . '</td>';
-			echo '<td>' . esc_html( $entry['action'] ?? '' ) . '</td>';
-			echo '<td>' . esc_html( $entry['reset_type'] ?? '' ) . '</td>';
-			echo '<td>' . esc_html( ! empty( $entry['dry_run'] ) ? 'Yes' : 'No' ) . '</td>';
-			echo '<td>' . esc_html( ! empty( $entry['success'] ) ? 'Success' : 'Failed' ) . '</td>';
-			echo '<td>' . esc_html( implode( '; ', $entry['errors'] ?? array() ) ) . '</td>';
-			echo '</tr>';
-		}
-		echo '</tbody></table></div>';
-	}
-
-	/**
-	 * Render settings tab.
-	 *
-	 * @return void
-	 */
-	protected function render_settings_tab() {
-		echo '<div class="drt-card"><h3>' . esc_html__( 'Settings', 'dev-reset-toolkit' ) . '</h3><p>' . esc_html__( 'This version includes sensible defaults focused on safety. More granular settings can be added in future updates.', 'dev-reset-toolkit' ) . '</p></div>';
-	}
-
-	/**
-	 * Redirect with notice.
-	 *
-	 * @param string $type Notice type.
-	 * @param string $message Notice message.
-	 * @return void
-	 */
-	protected function redirect_with_notice( $type, $message ) {
-		wp_safe_redirect(
-			add_query_arg(
-				array(
-					'page'       => 'dev-reset-toolkit',
-					'tab'        => 'reset',
-					'drt_notice' => sanitize_text_field( $type ),
-					'drt_message'=> rawurlencode( $message ),
-				),
-				admin_url( 'admin.php' )
-			)
-		);
-		exit;
 	}
 }

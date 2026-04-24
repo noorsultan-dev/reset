@@ -1,31 +1,29 @@
 (function ($) {
 	'use strict';
 
-	function toggleResetButton() {
-		var confirmation = ($('#drt_confirm_word').val() || '').trim();
-		$('#drt-run-reset').prop('disabled', confirmation !== 'reset');
+	function setActiveTab(tab) {
+		$('.drt-tab').removeClass('active');
+		$('.drt-tab[data-tab="' + tab + '"]').addClass('active');
+		$('.drt-panel').removeClass('active');
+		$('#drt-panel-' + tab).addClass('active');
 	}
 
-	$(document).on('input', '#drt_confirm_word', toggleResetButton);
+	$(document).on('click', '.drt-tab', function (e) {
+		e.preventDefault();
+		setActiveTab($(this).data('tab'));
+	});
 
+	function toggleResetButton() {
+		$('#drt_run_reset').prop('disabled', ($('#drt_confirm').val() || '').trim() !== 'reset');
+	}
+
+	$(document).on('input', '#drt_confirm', toggleResetButton);
 	$('#drt-reset-form').on('submit', function (e) {
-		var resetType = $('#drt_reset_type').val();
-		if (!resetType) {
-			e.preventDefault();
-			window.alert('Please select a reset type.');
-			return;
-		}
-		var confirmation = ($('#drt_confirm_word').val() || '').trim();
-		if (confirmation !== 'reset') {
-			e.preventDefault();
-			window.alert('Type exactly "reset" to continue.');
-			return;
-		}
-		var msg = drtAdmin.confirmMessages[resetType] || 'Are you sure you want to run this reset?';
-		if (!window.confirm(msg)) {
+		if (!window.confirm(drtAdmin.resetConfirm)) {
 			e.preventDefault();
 		}
 	});
 
 	toggleResetButton();
+	setActiveTab('reset');
 })(jQuery);
