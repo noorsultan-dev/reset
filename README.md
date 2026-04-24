@@ -4,13 +4,15 @@ Dev Reset Toolkit is a WordPress admin plugin that provides safe, developer-orie
 
 ## Installation
 
-1. Copy the `dev-reset-toolkit` folder into your WordPress `wp-content/plugins` directory.
-2. Or zip the folder:
-   - From a terminal, run `zip -r dev-reset-toolkit.zip dev-reset-toolkit/`.
-   - Upload the zip from **WordPress Admin → Plugins → Add New → Upload Plugin**.
-   - If your host uploader rejects nested package layouts, upload a zip built from the project root that contains both `dev-reset-toolkit.php` and `dev-reset-toolkit/`.
-3. Activate **Dev Reset Toolkit**.
-4. Open **Dev Reset Toolkit** in the admin menu.
+1. Create a folder named `dev-reset-toolkit` and place these files inside it:
+   - `dev-reset-toolkit.php`
+   - `includes/`
+   - `assets/`
+   - `README.md` (optional)
+2. Zip the folder (the plugin main file must be at the top level inside that folder):
+   - `zip -r dev-reset-toolkit.zip dev-reset-toolkit/`
+3. Upload from **WordPress Admin → Plugins → Add New → Upload Plugin**.
+4. Activate **Dev Reset Toolkit** and open it in the admin menu.
 
 ## Dangerous operations notes
 

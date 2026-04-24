@@ -1,28 +1,55 @@
 <?php
 /**
- * Plugin Name: Dev Reset Toolkit (Bootstrap Loader)
+ * Plugin Name: Dev Reset Toolkit
  * Plugin URI: https://example.com/dev-reset-toolkit
- * Description: Bootstrap loader for packaged installs that include the plugin in a nested folder.
- * Version: 1.0.1
+ * Description: Safe reset tools for developers with reset types, reactivation controls, dry-run mode, and logs.
+ * Version: 1.0.2
  * Author: Dev Reset Toolkit
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Text Domain: dev-reset-toolkit
+ *
+ * @package DevResetToolkit
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-$nested_main_file = __DIR__ . '/dev-reset-toolkit/dev-reset-toolkit.php';
-if ( file_exists( $nested_main_file ) ) {
-	require_once $nested_main_file;
-	return;
-}
+define( 'DRT_VERSION', '1.0.2' );
+define( 'DRT_PLUGIN_FILE', __FILE__ );
+define( 'DRT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+define( 'DRT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
-add_action(
-	'admin_notices',
-	static function () {
-		echo '<div class="notice notice-error"><p>' . esc_html__( 'Dev Reset Toolkit is missing required plugin files. Please reinstall the plugin package.', 'dev-reset-toolkit' ) . '</p></div>';
+require_once DRT_PLUGIN_DIR . 'includes/class-logger.php';
+require_once DRT_PLUGIN_DIR . 'includes/class-safety.php';
+require_once DRT_PLUGIN_DIR . 'includes/class-reactivation-manager.php';
+require_once DRT_PLUGIN_DIR . 'includes/class-reset-manager.php';
+require_once DRT_PLUGIN_DIR . 'includes/class-admin.php';
+
+/**
+ * Bootstrap plugin.
+ *
+ * @return void
+ */
+function drt_bootstrap() {
+	$logger = new DRT_Logger();
+	$safety = new DRT_Safety();
+	$reactivation_manager = new DRT_Reactivation_Manager( $logger );
+	$reset_manager = new DRT_Reset_Manager( $logger, $safety, $reactivation_manager );
+
+	new DRT_Admin( $reset_manager, $reactivation_manager, $logger );
+}
+add_action( 'plugins_loaded', 'drt_bootstrap' );
+
+/**
+ * Activation hook.
+ *
+ * @return void
+ */
+function drt_activate() {
+	if ( false === get_option( DRT_Logger::OPTION_KEY ) ) {
+		add_option( DRT_Logger::OPTION_KEY, array() );
 	}
-);
+}
+register_activation_hook( __FILE__, 'drt_activate' );
