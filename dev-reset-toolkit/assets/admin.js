@@ -10,7 +10,13 @@
 
 	$(document).on('click', '.drt-tab', function (e) {
 		e.preventDefault();
-		setActiveTab($(this).data('tab'));
+		var tab = $(this).data('tab');
+		setActiveTab(tab);
+		if (window.history && window.history.replaceState) {
+			var url = new URL(window.location.href);
+			url.searchParams.set('tab', tab);
+			window.history.replaceState({}, '', url.toString());
+		}
 	});
 
 	function toggleResetButton() {
@@ -38,5 +44,5 @@
 	});
 
 	toggleResetButton();
-	setActiveTab('reset');
+	setActiveTab(drtAdmin.initialTab || 'reset');
 })(jQuery);

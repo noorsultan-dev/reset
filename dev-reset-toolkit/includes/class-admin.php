@@ -42,12 +42,17 @@ class DRT_Admin {
 		}
 		wp_enqueue_style( 'drt-admin', DRT_PLUGIN_URL . 'assets/admin.css', array(), DRT_VERSION );
 		wp_enqueue_script( 'drt-admin', DRT_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), DRT_VERSION, true );
+		$tab = sanitize_text_field( wp_unslash( $_GET['tab'] ?? 'reset' ) );
+		if ( ! in_array( $tab, array( 'reset', 'tools', 'snapshots', 'collections', 'reactivation', 'logs', 'settings' ), true ) ) {
+			$tab = 'reset';
+		}
 		wp_localize_script(
 			'drt-admin',
 			'drtAdmin',
 			array(
 				'resetConfirm'      => __( 'This action is destructive. Continue?', 'dev-reset-toolkit' ),
 				'showConfirmModals' => (bool) $this->settings->get( 'show_confirm_modals' ),
+				'initialTab'        => $tab,
 			)
 		);
 	}

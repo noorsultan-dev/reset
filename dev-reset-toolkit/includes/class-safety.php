@@ -5,7 +5,26 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class DRT_Safety {
 	public function protected_options() {
-		return array( 'siteurl', 'home', 'admin_email', 'blogname', 'template', 'stylesheet', 'active_plugins' );
+		return array(
+			'siteurl',
+			'home',
+			'admin_email',
+			'blogname',
+			'blogdescription',
+			'template',
+			'stylesheet',
+			'current_theme',
+			'active_plugins',
+			'users_can_register',
+			'default_role',
+			'permalink_structure',
+			'rewrite_rules',
+			'db_version',
+			'initial_db_version',
+			'cron',
+			'upload_path',
+			'upload_url_path',
+		);
 	}
 
 	public function can_run() {
