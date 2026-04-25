@@ -13,6 +13,8 @@ class DRT_Settings {
 			'keep_plugin_active'   => 1,
 			'max_snapshots'        => 5,
 			'cleanup_on_uninstall' => 0,
+			'enable_advanced_tools'=> 0,
+			'show_confirm_modals'  => 1,
 		);
 	}
 
@@ -37,6 +39,8 @@ class DRT_Settings {
 			'keep_plugin_active'   => ! empty( $new_values['keep_plugin_active'] ) ? 1 : 0,
 			'max_snapshots'        => max( 1, (int) ( $new_values['max_snapshots'] ?? 5 ) ),
 			'cleanup_on_uninstall' => ! empty( $new_values['cleanup_on_uninstall'] ) ? 1 : 0,
+			'enable_advanced_tools'=> ! empty( $new_values['enable_advanced_tools'] ) ? 1 : 0,
+			'show_confirm_modals'  => ! empty( $new_values['show_confirm_modals'] ) ? 1 : 0,
 		);
 		update_option( self::OPTION_KEY, $clean, false );
 	}

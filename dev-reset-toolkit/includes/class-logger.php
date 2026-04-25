@@ -21,11 +21,13 @@ class DRT_Logger {
 		}
 		$defaults = array(
 			'timestamp' => current_time( 'mysql' ),
+			'user_id'   => get_current_user_id(),
 			'user'      => wp_get_current_user()->user_login,
 			'action'    => '',
 			'type'      => '',
 			'status'    => 'failed',
 			'error'     => '',
+			'ip'        => sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) ),
 		);
 		array_unshift( $logs, wp_parse_args( $entry, $defaults ) );
 		$logs = array_slice( $logs, 0, 500 );
@@ -35,5 +37,9 @@ class DRT_Logger {
 	public function all() {
 		$logs = get_option( self::OPTION_KEY, array() );
 		return is_array( $logs ) ? $logs : array();
+	}
+
+	public function clear() {
+		update_option( self::OPTION_KEY, array(), false );
 	}
 }

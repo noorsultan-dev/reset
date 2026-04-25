@@ -24,6 +24,19 @@
 		}
 	});
 
+	$('#drt-clear-local-data').on('click', function () {
+		if (!window.confirm('Clear browser localStorage/sessionStorage for this site?')) {
+			return;
+		}
+		try {
+			window.localStorage.clear();
+			window.sessionStorage.clear();
+			alert('Browser local data cleared.');
+		} catch (err) {
+			alert('Could not clear browser local data.');
+		}
+	});
+
 	toggleResetButton();
 	setActiveTab('reset');
 })(jQuery);

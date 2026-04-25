@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Dev Reset Toolkit
  * Description: Safe, free reset tools for developers.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: Dev Reset Toolkit
  * Requires at least: 6.0
  * Requires PHP: 7.4

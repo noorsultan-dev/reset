@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Dev Reset Toolkit
  * Description: Safe, free reset tools for developers.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: Dev Reset Toolkit
  * Requires at least: 6.0
  * Requires PHP: 7.4
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'DRT_VERSION', '2.0.0' );
+define( 'DRT_VERSION', '2.1.0' );
 define( 'DRT_PLUGIN_FILE', __FILE__ );
 define( 'DRT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DRT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -22,6 +22,7 @@ require_once DRT_PLUGIN_DIR . 'includes/class-logger.php';
 require_once DRT_PLUGIN_DIR . 'includes/class-safety.php';
 require_once DRT_PLUGIN_DIR . 'includes/class-settings.php';
 require_once DRT_PLUGIN_DIR . 'includes/class-snapshot-manager.php';
+require_once DRT_PLUGIN_DIR . 'includes/class-collections-manager.php';
 require_once DRT_PLUGIN_DIR . 'includes/class-reactivation-manager.php';
 require_once DRT_PLUGIN_DIR . 'includes/class-tools-manager.php';
 require_once DRT_PLUGIN_DIR . 'includes/class-reset-manager.php';
@@ -35,11 +36,12 @@ function drt_bootstrap() {
 	$logger = new DRT_Logger( $settings );
 	$safety = new DRT_Safety();
 	$snapshots = new DRT_Snapshot_Manager( $logger, $settings );
+	$collections = new DRT_Collections_Manager( $logger );
 	$reactivation = new DRT_Reactivation_Manager( $logger );
 	$tools = new DRT_Tools_Manager( $logger, $safety, $settings );
 	$resets = new DRT_Reset_Manager( $logger, $safety, $reactivation, $settings );
 
-	new DRT_Admin( $resets, $tools, $snapshots, $reactivation, $logger, $settings );
+	new DRT_Admin( $resets, $tools, $snapshots, $collections, $reactivation, $logger, $settings );
 }
 add_action( 'plugins_loaded', 'drt_bootstrap' );
 
