@@ -33,7 +33,7 @@ class DRT_Admin {
 	}
 
 	public function menu() {
-		add_menu_page( 'Dev Reset Toolkit', 'Dev Reset Toolkit', 'manage_options', 'dev-reset-toolkit', array( $this, 'page' ), 'dashicons-update-alt' );
+		add_menu_page( 'Dev Reset Toolkit', 'Dev Reset', 'manage_options', 'dev-reset-toolkit', array( $this, 'page' ), 'dashicons-update', 80 );
 	}
 
 	public function assets( $hook ) {
@@ -42,7 +42,14 @@ class DRT_Admin {
 		}
 		wp_enqueue_style( 'drt-admin', DRT_PLUGIN_URL . 'assets/admin.css', array(), DRT_VERSION );
 		wp_enqueue_script( 'drt-admin', DRT_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), DRT_VERSION, true );
-		wp_localize_script( 'drt-admin', 'drtAdmin', array( 'resetConfirm' => __( 'This action is destructive. Continue?', 'dev-reset-toolkit' ) ) );
+		wp_localize_script(
+			'drt-admin',
+			'drtAdmin',
+			array(
+				'resetConfirm'      => __( 'This action is destructive. Continue?', 'dev-reset-toolkit' ),
+				'showConfirmModals' => (bool) $this->settings->get( 'show_confirm_modals' ),
+			)
+		);
 	}
 
 	protected function guard( $action, $nonce_field = 'drt_nonce' ) {
@@ -62,12 +69,17 @@ class DRT_Admin {
 		if ( 'reset' !== sanitize_text_field( wp_unslash( $_POST['confirm'] ?? '' ) ) ) {
 			$this->redirect( 'error', __( 'Type reset to continue.', 'dev-reset-toolkit' ) );
 		}
+		$reset_type = sanitize_text_field( wp_unslash( $_POST['reset_type'] ?? '' ) );
+		if ( ! in_array( $reset_type, array( 'options_reset', 'site_reset', 'nuclear_reset' ), true ) ) {
+			$this->redirect( 'error', __( 'Invalid reset type.', 'dev-reset-toolkit' ) );
+		}
 		try {
 			$this->resets->run(
-				sanitize_text_field( wp_unslash( $_POST['reset_type'] ?? '' ) ),
+				$reset_type,
 				array(
 					'dry_run'                    => ! empty( $_POST['dry_run'] ),
 					'delete_custom_tables'       => ! empty( $_POST['delete_custom_tables'] ),
+					'delete_upload_files'        => ! empty( $_POST['delete_upload_files'] ),
 					'reactivate_theme'           => ! empty( $_POST['reactivate_theme'] ),
 					'reactivate_all_plugins'     => ! empty( $_POST['reactivate_plugins'] ),
 					'reactivate_selected_plugin' => sanitize_text_field( wp_unslash( $_POST['selected_plugin'] ?? '' ) ),
@@ -85,16 +97,21 @@ class DRT_Admin {
 		if ( 'reset' !== sanitize_text_field( wp_unslash( $_POST['confirm'] ?? '' ) ) ) {
 			$this->redirect( 'error', __( 'Type reset to run tools.', 'dev-reset-toolkit' ) );
 		}
-		$this->tools->run(
-			sanitize_text_field( wp_unslash( $_POST['tool'] ?? '' ) ),
-			array(
-				'dry_run'         => ! empty( $_POST['dry_run'] ),
-				'selected_files'  => array_map( 'sanitize_text_field', (array) ( $_POST['selected_files'] ?? array() ) ),
-				'selected_tables' => array_map( 'sanitize_text_field', (array) ( $_POST['selected_tables'] ?? array() ) ),
-				'drop_tables'     => ! empty( $_POST['drop_tables'] ),
-			)
-		);
-		$this->redirect( 'success', __( 'Tool executed.', 'dev-reset-toolkit' ) );
+		try {
+			$this->tools->run(
+				sanitize_text_field( wp_unslash( $_POST['tool'] ?? '' ) ),
+				array(
+					'dry_run'         => ! empty( $_POST['dry_run'] ),
+					'selected_files'  => array_map( 'sanitize_text_field', (array) ( $_POST['selected_files'] ?? array() ) ),
+					'selected_tables' => array_map( 'sanitize_text_field', (array) ( $_POST['selected_tables'] ?? array() ) ),
+					'drop_tables'     => ! empty( $_POST['drop_tables'] ),
+				)
+			);
+			$this->redirect( 'success', __( 'Tool executed.', 'dev-reset-toolkit' ) );
+		} catch ( Exception $e ) {
+			$this->logger->log( array( 'action' => 'tool', 'type' => 'run', 'status' => 'failed', 'error' => $e->getMessage() ) );
+			$this->redirect( 'error', $e->getMessage() );
+		}
 	}
 
 	public function handle_snapshot() {
@@ -226,7 +243,7 @@ class DRT_Admin {
 				<table class="widefat striped"><thead><tr><th>Item</th><th>Options</th><th>Site</th><th>Nuclear</th></tr></thead><tbody><tr><td>Posts</td><td>Keep</td><td>Delete</td><td>Delete</td></tr><tr><td>Uploads files</td><td>Keep</td><td>Keep</td><td>Delete</td></tr><tr><td>Users</td><td>Keep</td><td>Keep</td><td>Delete except current</td></tr></tbody></table>
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="drt-reset-form"><input type="hidden" name="action" value="drt_run_reset" /><?php wp_nonce_field( 'drt_reset_action', 'drt_nonce' ); ?>
 				<p><select name="reset_type"><option value="">Select reset type</option><option value="options_reset">Options Reset</option><option value="site_reset">Site Reset</option><option value="nuclear_reset">Nuclear Reset</option></select></p>
-				<p><label><input type="checkbox" name="dry_run" value="1" /> Dry-run</label> <label><input type="checkbox" name="delete_custom_tables" value="1" /> Drop custom tables (nuclear)</label></p>
+				<p><label><input type="checkbox" name="dry_run" value="1" /> Dry-run</label> <label><input type="checkbox" name="delete_custom_tables" value="1" /> Drop custom tables (nuclear)</label> <label><input type="checkbox" name="delete_upload_files" value="1" /> Nuclear: also delete upload files</label></p>
 				<p><label><input type="checkbox" name="reactivate_theme" value="1" /> Reactivate current theme</label> <label><input type="checkbox" name="reactivate_plugins" value="1" /> Reactivate current plugins</label></p>
 				<p><select name="selected_plugin"><option value="">Selected plugin reactivation</option><?php foreach ( $plugins as $file => $p ) : ?><option value="<?php echo esc_attr( $file ); ?>"><?php echo esc_html( $p['Name'] ); ?></option><?php endforeach; ?></select></p>
 				<p><input type="text" id="drt_confirm" name="confirm" placeholder="Type reset" /></p><p><button class="button button-primary" id="drt_run_reset" disabled>Run Reset</button></p></form>

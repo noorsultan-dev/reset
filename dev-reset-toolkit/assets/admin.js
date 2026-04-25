@@ -19,7 +19,7 @@
 
 	$(document).on('input', '#drt_confirm', toggleResetButton);
 	$('#drt-reset-form').on('submit', function (e) {
-		if (!window.confirm(drtAdmin.resetConfirm)) {
+		if (drtAdmin.showConfirmModals && !window.confirm(drtAdmin.resetConfirm)) {
 			e.preventDefault();
 		}
 	});

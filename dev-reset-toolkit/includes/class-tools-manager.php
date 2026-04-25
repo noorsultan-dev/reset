@@ -16,6 +16,10 @@ class DRT_Tools_Manager {
 
 	public function run( $tool, $args ) {
 		$dry_run = ! empty( $args['dry_run'] ) || $this->settings->get( 'enable_dry_run' );
+		$dangerous_tools = array( 'delete_themes_except_active', 'delete_plugins_except_self', 'delete_mu_dropins', 'clean_uploads_orphans', 'clean_wp_content', 'custom_tables', 'delete_htaccess' );
+		if ( in_array( $tool, $dangerous_tools, true ) && ! $this->settings->get( 'enable_advanced_tools' ) ) {
+			throw new Exception( __( 'Enable advanced dangerous tools in Settings first.', 'dev-reset-toolkit' ) );
+		}
 		switch ( $tool ) {
 			case 'reset_theme_options':
 				$this->reset_theme_options( $dry_run );
@@ -148,7 +152,7 @@ class DRT_Tools_Manager {
 		foreach ( $selected_files as $file ) {
 			$file = sanitize_file_name( $file );
 			$path = in_array( $file, $dropins, true ) ? trailingslashit( WP_CONTENT_DIR ) . $file : trailingslashit( WPMU_PLUGIN_DIR ) . $file;
-			if ( file_exists( $path ) && ! $dry_run ) {
+			if ( file_exists( $path ) && ! $dry_run && ! DRT_Safety::is_protected_path( $path ) ) {
 				wp_delete_file( $path );
 			}
 		}
@@ -159,9 +163,9 @@ class DRT_Tools_Manager {
 		foreach ( $selected_files as $relative ) {
 			$relative = ltrim( str_replace( '..', '', wp_unslash( $relative ) ), '/' );
 			$full = trailingslashit( $base ) . $relative;
-			if ( file_exists( $full ) && ! $dry_run ) {
-				wp_delete_file( $full );
-			}
+				if ( file_exists( $full ) && ! $dry_run && ! DRT_Safety::is_protected_path( $full ) ) {
+					wp_delete_file( $full );
+				}
 		}
 	}
 
@@ -172,9 +176,9 @@ class DRT_Tools_Manager {
 				continue;
 			}
 			$full = trailingslashit( WP_CONTENT_DIR ) . $relative;
-			if ( file_exists( $full ) && ! $dry_run ) {
-				if ( is_dir( $full ) ) {
-					$this->delete_dir( $full );
+				if ( file_exists( $full ) && ! $dry_run && ! DRT_Safety::is_protected_path( $full ) ) {
+					if ( is_dir( $full ) ) {
+						$this->delete_dir( $full );
 				} else {
 					wp_delete_file( $full );
 				}
@@ -201,12 +205,15 @@ class DRT_Tools_Manager {
 
 	protected function delete_htaccess( $dry_run ) {
 		$file = ABSPATH . '.htaccess';
-		if ( file_exists( $file ) && ! $dry_run ) {
+		if ( file_exists( $file ) && ! $dry_run && ! DRT_Safety::is_protected_path( $file ) ) {
 			wp_delete_file( $file );
 		}
 	}
 
 	protected function delete_dir( $path ) {
+		if ( DRT_Safety::is_protected_path( $path ) ) {
+			return;
+		}
 		$it = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $path, RecursiveDirectoryIterator::SKIP_DOTS ), RecursiveIteratorIterator::CHILD_FIRST );
 		foreach ( $it as $item ) {
 			if ( $item->isDir() ) {

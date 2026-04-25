@@ -32,4 +32,26 @@ class DRT_Safety {
 		}
 		populate_roles();
 	}
+
+	public static function is_protected_path( $path ) {
+		$real = wp_normalize_path( realpath( $path ) ?: $path );
+		$protected = array(
+			wp_normalize_path( ABSPATH ),
+			wp_normalize_path( WP_PLUGIN_DIR ),
+			wp_normalize_path( get_theme_root() ),
+			wp_normalize_path( WP_CONTENT_DIR . '/plugins' ),
+			wp_normalize_path( WP_CONTENT_DIR . '/themes' ),
+			wp_normalize_path( ABSPATH . 'wp-config.php' ),
+			wp_normalize_path( ABSPATH . 'wp-admin' ),
+			wp_normalize_path( ABSPATH . 'wp-includes' ),
+		);
+
+		foreach ( $protected as $item ) {
+			if ( $real === $item || 0 === strpos( $real, trailingslashit( $item ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
 }

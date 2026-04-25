@@ -24,8 +24,8 @@ class DRT_Reset_Manager {
 			$this->options_reset( $dry_run );
 		} elseif ( 'site_reset' === $type ) {
 			$this->site_reset( $dry_run );
-		} elseif ( 'nuclear_reset' === $type ) {
-			$this->nuclear_reset( $dry_run, ! empty( $args['delete_custom_tables'] ) );
+			} elseif ( 'nuclear_reset' === $type ) {
+				$this->nuclear_reset( $dry_run, ! empty( $args['delete_custom_tables'] ), ! empty( $args['delete_upload_files'] ) );
 		} else {
 			throw new Exception( __( 'Invalid reset type.', 'dev-reset-toolkit' ) );
 		}
@@ -65,9 +65,11 @@ class DRT_Reset_Manager {
 		$this->options_reset( $dry_run );
 	}
 
-	protected function nuclear_reset( $dry_run, $delete_custom_tables ) {
+	protected function nuclear_reset( $dry_run, $delete_custom_tables, $delete_upload_files ) {
 		$this->site_reset( $dry_run );
-		$this->delete_upload_files( $dry_run );
+		if ( $delete_upload_files ) {
+			$this->delete_upload_files( $dry_run );
+		}
 		$this->delete_users_except_current( $dry_run );
 		$this->safety->reset_roles( $dry_run );
 		if ( $delete_custom_tables ) {
@@ -117,10 +119,15 @@ class DRT_Reset_Manager {
 		if ( ! is_dir( $base ) ) {
 			return;
 		}
+		$base = wp_normalize_path( $base );
 		$it = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $base, RecursiveDirectoryIterator::SKIP_DOTS ), RecursiveIteratorIterator::CHILD_FIRST );
 		foreach ( $it as $item ) {
+			$path = wp_normalize_path( $item->getPathname() );
+			if ( 0 !== strpos( $path, trailingslashit( $base ) ) ) {
+				continue;
+			}
 			if ( $item->isFile() && ! $dry_run ) {
-				wp_delete_file( $item->getPathname() );
+				wp_delete_file( $path );
 			}
 		}
 	}
