@@ -1,0 +1,8 @@
+.drt-tabs { display:flex; gap:8px; margin:16px 0; }
+.drt-tab { border:1px solid #ccd0d4; background:#fff; padding:8px 12px; cursor:pointer; border-radius:4px; }
+.drt-tab.active { background:#2271b1; color:#fff; border-color:#2271b1; }
+.drt-panel { display:none; background:#fff; border:1px solid #dcdcde; padding:16px; border-radius:8px; }
+.drt-panel.active { display:block; }
+.drt-warning-box { background:#fff8e5; border-left:4px solid #dba617; padding:10px; margin-bottom:12px; }
+#drt_run_reset[disabled] { opacity:.5; cursor:not-allowed; }
+.drt-panel form { margin:10px 0; }
